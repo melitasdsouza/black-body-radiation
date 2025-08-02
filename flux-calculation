@@ -59,3 +59,45 @@ def Fnu_to_Flam(f_nu, wl):
 def Flam_to_Fnu(f_lam, wl):
     f_nu = f_lam * (wl)**2 / (c) / 1E8 # 1 cm = 1E8 Å, units: erg/s/cm^2/Hz
     return f_nu
+# This computes the fluxes for all bands.
+def compute_fluxes(df):
+    df = df.copy() # Avoid modifying the original dataframe and prevent an error
+
+    # Map the input band names from our data table to the standardized band names in the SVO table
+    band_mapping = {
+        'uvw1': 'UVOT_UVW1', 'uvm2': 'UVOT_UVM2', 'uvw2': 'UVOT_UVW2',
+        'NUV': 'GALEX_NUV', 'FUV': 'GALEX_FUV',
+        'B': 'Johnson_B', 'V': 'Johnson_V', 'I': 'Cousins_I', 'u': 'Thuan-Gunn_u',
+        'g_mag': 'Gaia_G', 'j_m': '2MASS_J'
+    }
+    
+    error_mapping = {
+        'UVOT_UVW1': 'uvw1 error', 'UVOT_UVM2': 'uvm2 error', 'UVOT_UVW2': 'uvw2 error',
+        'GALEX_NUV': 'eNUV', 'GALEX_FUV': 'eFUV',
+        'Johnson_B': 'B error', 'Johnson_V': 'V error', 'Cousins_I': 'I error', 'Thuan-Gunn_u': 'u error',
+        'Gaia_G': 0.03, '2MASS_J': 'j_msigcom'
+    }
+
+    # Iterate over each band in the mapping
+    for band, std_band in band_mapping.items():
+        error_col = error_mapping.get(std_band, None)  # Lookup error based on standardized band name
+        
+        # print(f"Processing band: {band} → {std_band} | Error Column: {error_col}")  # Use for debugging
+
+        if isinstance(error_col, str) and error_col in df.columns:
+            # If an explicit error column exists, use its values
+            df[[f'{std_band}_flux', f'{std_band}_flux_err']] = df.apply(
+                # the lambda keyword can be used for short, simple operations 
+                lambda row: mag_to_flux(row[band], row[error_col] if pd.notna(row[error_col]) else np.nan, std_band)
+                # axis = 1 is for row-wise operations; result_type='expand' returns two separate columns for flux and flux_err
+                if pd.notna(row[band]) else (np.nan, np.nan), axis=1, result_type='expand' 
+            )
+        else:
+            # If no explicit error column exists, use an assumed error value (needed for Gaia photometry)
+            assumed_error = error_col if isinstance(error_col, (int, float)) else np.nan
+            df[[f'{std_band}_flux', f'{std_band}_flux_err']] = df.apply(
+                lambda row: mag_to_flux(row[band], assumed_error, std_band)
+                if pd.notna(row[band]) else (np.nan, np.nan), axis=1, result_type='expand'
+            )
+
+    return df
