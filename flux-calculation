@@ -1,0 +1,61 @@
+# These are constants we will need for our functions, using the astropy package
+c = const.c.cgs.value # cm/s
+k = const.k_B.cgs.value # erg/K
+h = const.h.cgs.value # erg s
+
+# This function converts magnitudes to fluxes, given the magnitude, error, and band.
+def mag_to_flux(mag, mag_err, band):
+    """Calculate flux in erg s-1 cm-2 Å-1."""
+    if 'PS1' in band or 'SDSS' in band or 'GALEX' in band: # For AB magnitudes, convert flux using standard AB magnitude zero point (48.6)
+        flux = 10 ** (-.4 * (mag + 48.6))
+        flux_err = abs(-.4 * flux * np.log(10) * mag_err)
+        wl_eff = get_effective_wavelength(band) # Retrieves the effective wavelength by calling another function
+        flux = Fnu_to_Flam(flux, wl_eff) # Converts Fν (flux per Hz) to Fλ (flux per Å), using another function
+        flux_err = Fnu_to_Flam(flux_err, wl_eff)
+    else: # For Vega magnitudes, simply retrieve the zero point flux and apply the standard magnitude-to-flux conversion
+        f0 = get_zero_flux(band)
+        flux = 10 ** (-.4 * mag) * f0
+        flux_err = abs(-.4 * flux * np.log(10) * mag_err)
+    return flux, flux_err
+
+# This function retrieves the zero point flux from the SVO table, given the filter.
+def get_zero_flux(band):
+    """Retrieve zero flux from SVO table."""
+    row = df_SVO[df_SVO["name"] == band]
+    
+    if row.empty: # Checks if the band isn't in the table
+        print(f"Warning: Zero flux not found for band {band}. Assigning NaN.")
+        return np.nan
+    
+    if "AB" in band or "SDSS" in band or "PS1" in band or "GALEX" in band:
+        return row["AB flux"].values[0]  # Return AB zero point flux
+    else:
+        return row["Vega flux"].values[0]  # Return Vega zero point flux
+
+# This function retrieves the effective wavelength from the SVO table, given the filter.
+def get_effective_wavelength(band):
+    """Retrieve the effective wavelength from SVO table and ensure it is in Ångströms."""
+    row = df_SVO[df_SVO["name"] == band]
+    
+    if row.empty:
+        print(f"Warning: Effective wavelength not found for band {band}. Assigning NaN.")
+        return np.nan
+    
+    wavelength = row["effective wavelength"].values[0]
+    unit = row["wavelength units"].values[0]
+
+    # Convert nanometers to Ångströms if necessary
+    if unit.lower() in ["nm", "nanometers"]:
+        wavelength *= 10  # 1 nm = 10 Å
+
+    return wavelength  # Return wavelength in Å
+
+# This function converts the flux in frequency to flux in wavelength
+def Fnu_to_Flam(f_nu, wl):
+    f_lam = f_nu * (c) / (wl)**2 * 1E8 # 1 cm = 1E8 Å, units: erg/s/cm^2/Å
+    return f_lam
+
+# This function converts the flux in wavelength to flux in frequency
+def Flam_to_Fnu(f_lam, wl):
+    f_nu = f_lam * (wl)**2 / (c) / 1E8 # 1 cm = 1E8 Å, units: erg/s/cm^2/Hz
+    return f_nu
